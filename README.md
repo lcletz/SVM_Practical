@@ -36,9 +36,10 @@ python svm_script.py
 python svm_gui.py
 ```
 
+### Generate Quarto report
+
 We recommend producing an HTML file rather than a PDF.
 
-### Generate Quarto report
 ```bash
 cd quarto_report/
 quarto render svm_report.qmd --to html
@@ -83,9 +84,10 @@ python svm_script.py
 python svm_gui.py
 ```
 
+### Générer le rapport Quarto
+
 Nous conseillons de produire un fichier HTML plutôt qu'un PDF.
 
-### Générer le rapport Quarto
 ```bash
 cd quarto_report/
 quarto render svm_report.qmd --to html
