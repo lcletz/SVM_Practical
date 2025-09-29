@@ -64,7 +64,7 @@ Ce travail sera réalisé exclusivement par :
 
 ### Prérequis
 - Python 3.8+
-- Gestionnaire de paquets Conda ou pip
+- Gestionnaire de packages Conda ou pip
 
 ### Configuration
 ```bash
