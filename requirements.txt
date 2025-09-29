@@ -1,4 +1,14 @@
+# Dépendances Python principales
 numpy
 scikit-learn
 matplotlib
 pandas
+seaborn
+
+# Dépendances pour Quarto et notebooks
+PyYAML
+nbformat
+jupyter
+
+# Dépendances pour GUI (optionnel)
+tkinter

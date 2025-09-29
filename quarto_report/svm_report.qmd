@@ -1,0 +1,557 @@
+---
+title: "TP : Support Vector Machines"
+subtitle: "HAX907X - Apprentissage statistique"
+author: "CLETZ Laura"
+date: today
+format: 
+  html:
+    theme: cosmo
+    css: style.css
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    code-fold: false
+    code-overflow: wrap
+    fig-width: 10
+    fig-height: 6
+    embed-resources: true
+    page-layout: article
+    output-file: "svm_report.html"
+  pdf:
+    documentclass: article
+    toc: true
+    number-sections: true
+    geometry:
+      - top=30mm
+      - left=20mm
+      - heightrounded
+    fig-width: 7
+    fig-height: 5
+execute:
+  echo: true
+  warning: false
+  message: false
+  cache: false
+jupyter: python3
+---
+
+::: {.header-logos}
+::: {.logo-left}
+![](images/UM.png){.logo alt="Université de Montpellier"}
+:::
+
+::: {.logo-center}
+![](images/FdS.jpg){.logo alt="Faculté des Sciences"}
+:::
+
+::: {.logo-right}
+![](images/BioSSD_logo.png){.logo alt="BioSSD"}
+:::
+:::
+
+# Introduction
+
+Ce rapport présente la mise en pratique des Support Vector Machines (SVM) comme méthodes de classification. 
+Voici ce que nous traiterons :
+
+- nous générerons tout d'abord notre propre jeu de données pseudo-aléatoires pour prendre en main les fonctions qui nous ont été transmises dans le fichier `python_script/svm_source.py` ;
+- nous manipulerons ensuite ces mêmes fonctions en usant du jeu de données "***iris***" ;
+- nous jouerons avec les fonctionnalités du SVM GUI ;
+- nous verrons ensuite comment les SVM permettent aussi la classification d'images à partir des visages de personnalités politiques ;
+- nous observerons sur ces mêmes données la différence dans les performances des SVM avec ou sans facteur de nuisance, avant ou après réduction des dimensions.
+
+*L'aide à la stylisation CSS est fournie par GitHub Copilot sous Visual Studio Code...*
+Nous pouvons d'ores et déjà charger les librairies Python nécessaires, en particulier le package `scikit-learn`. Il faudra fixer une graine à chaque cellule, nous optons pour 9204.
+
+```{python}
+#| echo: false
+import sys
+import os
+sys.path.append('../python_script')
+
+import random
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.svm import SVC
+
+from svm_source import *
+from sklearn import svm
+from sklearn import datasets
+# from sklearn.utils import shuffle # train_test_split used
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.datasets import fetch_lfw_people
+from sklearn.decomposition import PCA
+from time import time
+
+scaler = StandardScaler()
+
+import warnings
+warnings.filterwarnings("ignore")
+
+plt.style.use('ggplot')
+```
+
+# Prise en main
+
+Nous commençons par générer un jeu de données simple composé de deux gaussiennes bidimensionnelles.
+
+```{python}
+#| echo: false
+random.seed(9204)
+
+n1 = 200
+n2 = 200
+mu1 = [1., 1.]
+mu2 = [-1./2, -1./2]
+sigma1 = [0.9, 0.9]
+sigma2 = [0.9, 0.9]
+X1, y1 = rand_bi_gauss(n1, n2, mu1, mu2, sigma1, sigma2)
+
+plt.figure(1, figsize=(15, 5))
+plt.title('Premier jeu de données')
+plot_2d(X1, y1)
+plt.show()
+```
+
+Nous voyons le nuage gaussien formé par des deux plus petits nuages gaussiens de couleurs distinctes, eux-mêmes issus des deux vecteurs gaussiens pseudo-aléatoirement générés.
+
+Nous y avons ajouté notre touche personnelle : des dégradés du violet au lilas, toujours accessibles aux personnes daltoniennes.
+
+Testons un premier ajustement par SVM sur ces jeux de données de façon à les "séparer", à les classifier, linéairement pour commencer :
+
+```{python}
+#| echo: false
+X_train = X1[::2]
+Y_train = y1[::2].astype(int)
+X_test = X1[1::2]
+Y_test = y1[1::2].astype(int)
+
+# fit the model with linear kernel
+clf = SVC(kernel='linear')
+clf.fit(X_train, Y_train)
+
+# predict labels for the test data base
+y_pred = clf.predict(X_test)
+
+# check your score
+score = clf.score(X_test, Y_test)
+print('Paramètre de régularisation C :', clf.C)
+print('Paramètre de fonction noyau :', clf.kernel)
+print('Score : %s' % score)
+
+# display the frontiere
+def f(xx):
+    """Classifier: needed to avoid warning due to shape issues"""
+    return clf.predict(xx.reshape(1, -1))
+
+plt.figure()
+frontiere(f, X_train, Y_train, w=None, step=50, alpha_choice=1)
+plt.show()
+```
+
+Nous discernons la séparation entre le plus gros de chaque vecteur de données mais le choix d'un noyau linéaire fait qu'il y a tout de même des données de chaque vecteur qui se retrouvent dans la "partie de l'autre". Essayons d'optimiser le choix du paramètre de régularisation C :
+
+```{python}
+#| echo: false
+# Same procedure but with a grid search
+parameters = {'kernel': ['linear'], 'C': list(np.linspace(0.001, 3, 21))}
+clf2 = SVC()
+clf_grid = GridSearchCV(clf2, parameters, n_jobs=-1)
+clf_grid.fit(X_train, Y_train)
+
+# check your score
+print('Meilleur paramètre de régularisation C :', clf_grid.best_estimator_.C)
+print('Paramètre de fonction noyau choisi :', clf_grid.best_estimator_.kernel)
+print('Score : %s' % clf_grid.score(X_test, Y_test))
+
+def f_grid(xx):
+    """Classifier: needed to avoid warning due to shape issues"""
+    return clf_grid.predict(xx.reshape(1, -1))
+
+# display the frontiere
+plt.figure()
+frontiere(f_grid, X_train, Y_train, w=None, step=50, alpha_choice=1)
+plt.show()
+```
+
+Il semblerait qu'il y ait plusieurs paramètres C pour lesquels le score est à 0.875 qui est vraisemblablement la valeur optimale. Pourtant, le graphe n'est pas plus convainquant que le précédent. 
+
+Un meilleur jeu de données nous permettrait sûrement d'y voir plus clair quant à la performance de classification des SVM.
+
+# Mise en pratique avec "iris"
+
+Le jeu de données "iris" est disponible pour de nombreux packages sous différents langages de programmation.
+
+Il s'agit d'un échantillon de 150 iris (la plante) équi-réparties dans 3 groupes : l'espèce *setosa*, l'espèce *versicolor* et l'espèce *virginica*. 
+
+Séparons ces données aléatoirement en deux jeux de données "train" et "test". X est l'ensemble des facteurs pouvant servir à déterminer l'espèce (longueur et largeur des sépales et des pétales par exemple) et y est l'espèce. 
+
+```{python}
+#| echo: false
+random.seed(9204)
+
+iris = datasets.load_iris()
+X = iris.data
+X = scaler.fit_transform(X)
+y = iris.target
+X = X[y != 0, :2]
+y = y[y != 0]
+
+# split train test (say 25% for the test)
+# You can shuffle and then separate or you can just use train_test_split 
+#whithout shuffling (in that case fix the random state (say to 42) for reproductibility)
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=42)
+```
+
+Tentons la classification par SVM comme vue dans la première partie en utilisant le noyau linéaire et une optimisation du paramètre de régularisation C :
+
+```{python}
+#| echo: false
+# Q1 Linear kernel
+random.seed(9204)
+
+# fit the model and select the best hyperparameter C
+parameters = {'kernel': ['linear'], 'C': list(np.logspace(-3, 3, 200))}
+svm1 = svm.SVC()
+clf_linear = GridSearchCV(svm1, parameters, n_jobs=-1)
+random.seed(9204)
+clf_linear.fit(X_train, y_train)
+
+# compute the score
+print(clf_linear.best_params_)
+print('Score de généralisation pour le noyau linéaire : %s, %s' %
+      (clf_linear.score(X_train, y_train),
+       clf_linear.score(X_test, y_test)))
+```
+
+Il est cohérent que le premier score apparaissant soit supérieur au second car ils sont le score de généralisation pour, respectivement, l'ensemble d'apprentissage ("train") et l'ensemble de "test". Grâce au noyau linéaire et le C optimal, nous tournons autour de 70% de précision.
+
+Voyons si le noyau linéaire, donc un polynôme de degré 1, est meilleur qu'un noyau polynomial d'ordre supérieur.
+
+```{python}
+#| echo: false
+# Q2 polynomial kernel
+random.seed(9204)
+
+Cs = list(np.logspace(-3, 3, 5))
+gammas = 10. ** np.arange(1, 2)
+degrees = np.r_[2, 3] # degree = 1 removed because it is equivalent to linear kernel and is the optimal degree for this dataset
+
+# fit the model and select the best set of hyperparameters
+parameters = {'kernel': ['poly'], 'C': Cs, 'gamma': gammas, 'degree': degrees}
+svm2 = svm.SVC()
+clf_poly = GridSearchCV(svm2, parameters, n_jobs=-1)
+clf_poly.fit(X_train, y_train)
+
+print('Score de généralisation pour le noyau polynomial : %s, %s' %
+      (clf_poly.score(X_train, y_train),
+       clf_poly.score(X_test, y_test)))
+```
+
+Les scores obtenus du noyau polynomial d'ordre 2 sont moins satisfaisants que ceux du noyau linéaire. Si nous avions autorisé l'optimisation de l'ordre du polynôme à choisir le degré 1, alors il aurait été choisi et le modèle obtenu aurait été exactement le même que le précédent.
+
+Reportons graphiquement ces résultats :
+
+```{python}
+#| echo: false
+# display your results using frontiere (svm_source.py)
+random.seed(9204)
+
+def f_linear(xx):
+    return clf_linear.predict(xx.reshape(1, -1)) # reshaping to avoid warning
+
+def f_poly(xx):
+    return clf_poly.predict(xx.reshape(1, -1))
+
+plt.ion()
+plt.figure(figsize=(15, 5))
+plt.subplot(131)
+plot_2d(X, y)
+plt.title('Jeu de données "iris"')
+
+plt.subplot(132)
+frontiere(f_linear, X, y)
+plt.title("Noyau linéaire")
+
+plt.subplot(133)
+frontiere(f_poly, X, y)
+
+plt.title("Noyau polynomial")
+plt.tight_layout()
+plt.draw()
+plt.show()
+```
+
+À l'oeil, ce n'est pas si facile de distinguer la performance de la méthode de noyau linéaire contre celle de noyau polynomial. Il semble, en effet, que la frontière tracée pour la classe 1 (espèce *setosa*) recouvre davantage de points de la classe 2 (espèce *versicolor*) afin de récupérer davantage de points de la classe 1.
+
+# SVM GUI
+
+Nous allons suivre les indications du site https://scikit-learn.org/1.2/auto_examples/applications/svm_gui.html qui prête le code que nous pouvons retrouver dans `python_script/svm_gui.py`. Ce script est à lancer en console et c'est aussi dans la console qu'apparaitra la précision ("*accuracy*") du modèle. Nous créons 18 points de classe 1 (les noirs ci-dessous) et 4 points de classe 2 (les blancs) et nous essayons d'ajuster une classification en jouant avec trois fonctions à noyau :
+
+- le noyau linéaire ;
+- le noyau polynomial ;
+- la fonction RBF (radial basis function) ;
+
+et quatre hyperparamètres :
+
+- le paramètre de régularisation C que nous avons déjà vu et qui détermine l'influence des erreurs de classification ;
+- le paramètre $\gamma$ contrôle la distance d'influence à partir d'un unique point ;
+- la paramètre de degrés/d'ordre d de la fonction polynomiale ;
+- le coefficient à l'origine r d'ordre le paramètre de degré.
+
+Nous trafiquerons essentiellement les paramètres C et de degré.
+
+::: {layout-ncol=3}
+![Noyau linéaire C=1](images/linear_C1.png)
+
+![Noyau linéaire C=3](images/linear_C3.png)
+
+![Noyau linéaire C=5](images/linear_C5.png)
+:::
+
+<div class="centered-title">**Noyau linéaire et paramètre $C\in\{1,3,5\}$**</div>
+
+Si l'orientation de la droite change, il n'est pas évident de comprendre le choix ou la conséquence de ces changements. Pour les trois choix de C, la droite sépare pile en deux la classe 1, un point de la classe 2 est d'un côté et les 3 autres de l'autre. Trafiquer le choix du degré pour un noyau polynomial semble avoir plus de sens :
+
+::: {layout-ncol=2}
+![Noyau polynomial d=2](images/poly_degree2.png)
+
+![Noyau polynomial d=3](images/poly_degree3.png)
+:::
+
+<div class="centered-title">**Noyau polynomial et paramètre $d\in\{2,3\}$**</div>
+
+L'allure des deux graphes ci-dessus est nettement différente. La première, de paramètre $d=2$, regroupe les éléments de la classe 2 dans un sablier qui prend en même temps 4 à 8 éléments de la classe 1 et exclut tous les autres, donc la classification est pertinente et visuelle. Le second, de paramètre $d=3$, sépare bien moins clairement les classes : il est difficile d'interprêter la délimitation créée par le polynôme de degré 3.
+
+# Classification des visages
+
+"*Labeled Faces in the Wild (LFW)*" est un jeu de données de reconnaissance et classification des images d'usage courant. Nous allons nous concentrer sur des images du visage de personnalités politiques et, grâce aux SVM, nous allons tenter de remettre correctement le nom de ces personnalités sur leur visage dont en voici quelques noms :
+
+```{python}
+#| echo: false
+lfw_people = fetch_lfw_people(min_faces_per_person=70, resize=0.4,
+                              color=True, funneled=False, slice_=None,
+                              download_if_missing=True)
+
+images = lfw_people.images
+n_samples, h, w, n_colors = images.shape
+
+# the label to predict is the id of the person
+target_names = lfw_people.target_names.tolist()
+target_names
+```
+
+Nous allons sélectionner une paire de ces individus qui seront nos classes 1 et 2 (ou 1 et -1) : George W Bush et Hugo Chavez.
+
+```{python}
+#| echo: false
+random.seed(9204)
+
+# Pick a pair to classify such as
+# names = ['Tony Blair', 'Colin Powell']
+# names = ['Donald Rumsfeld', 'Colin Powell']
+names = ['George W Bush', 'Hugo Chavez']
+
+idx0 = (lfw_people.target == target_names.index(names[0]))
+idx1 = (lfw_people.target == target_names.index(names[1]))
+images = np.r_[images[idx0], images[idx1]]
+n_samples = images.shape[0]
+y = np.r_[np.zeros(np.sum(idx0)), np.ones(np.sum(idx1))]
+y = y.astype(int)
+
+# plot a sample set of the data
+plot_gallery(images, np.arange(12))
+plt.show()
+```
+
+Cette base de données possède bien plus d'images labellisées de George W Bush que d'Hugo Chavez, cela pourra potentiellement freiner les performances des SVM. 
+
+```{python}
+#| echo: false
+# Extract features
+random.seed(9204)
+
+for name in names:
+    name_index = target_names.index(name)
+    count = np.sum(lfw_people.target == name_index)
+    print(f"{name} : {count} images")
+
+# features using only illuminations
+X = (np.mean(images, axis=3)).reshape(n_samples, -1)
+
+# # or compute features using colors (3 times more features)
+# X = images.copy().reshape(n_samples, -1)
+
+# Scale features
+X -= np.mean(X, axis=0)
+X /= np.std(X, axis=0)
+
+random.seed(9204)
+
+indices = np.random.permutation(X.shape[0])
+train_idx, test_idx = indices[:X.shape[0] // 2], indices[X.shape[0] // 2:]
+X_train, X_test = X[train_idx, :], X[test_idx, :]
+y_train, y_test = y[train_idx], y[test_idx]
+images_train, images_test = images[train_idx, :, :, :], images[test_idx, :, :, :]
+```
+
+Comme nous avons fait pour les données gaussiennes et les données d'iris, nous divisons nos données LFW en "train" et "test" et nous essayons d'optimiser pour le noyau linéaire l'hyperparamètre C.
+
+```{python}
+#| echo: false
+# Q4
+random.seed(9204)
+t0 = time()
+
+# fit a classifier (linear) and test all the Cs
+Cs = 10. ** np.arange(-5, 6)
+train_scores = []
+test_scores = []
+for C in Cs:
+    parameters = {'kernel': ['linear'], 'C': [C]} # [C] to have a list of one element (TypeError otherwise)
+    svm_model = svm.SVC()
+    clf = GridSearchCV(svm_model, parameters, n_jobs=-1)
+    clf.fit(X_train, y_train)
+    train_scores.append(clf.score(X_train, y_train))
+    test_scores.append(clf.score(X_test, y_test))
+
+ind_train = np.argmax(train_scores)
+ind_test = np.argmax(test_scores)
+print("Effectué en  %0.3fs" % (time() - t0))
+print("Meilleur C (train): {}".format(Cs[ind_train]))
+print("Meilleur C (test): {}".format(Cs[ind_test])) # done this to avoid overfitting I saw in the previous version
+
+fig, ax = plt.subplots(figsize=(10, 6))
+fig.patch.set_facecolor('white')
+ax.set_facecolor('white')
+
+ax.plot(Cs, train_scores, color='#7B1FA2', marker='o', label='Score d\'entraînement')
+ax.plot(Cs, test_scores, color='#4A148C', marker='s', label='Score de test')
+
+ax.set_xlabel("Paramètres de régularisation C", fontsize=12, color='black')
+ax.set_ylabel("Scores", fontsize=12, color='black')
+ax.set_title("Courbes d'apprentissage : Train vs Test", fontsize=14, color='black', fontweight='normal')
+
+ax.set_xscale("log")
+
+ax.spines['bottom'].set_color('black')
+ax.spines['left'].set_color('black')
+ax.spines['top'].set_visible(False)
+ax.spines['right'].set_visible(False)
+ax.tick_params(colors='black')
+ax.grid(True, alpha=0.3, color='gray', linestyle='-', linewidth=0.5)
+
+legend = ax.legend(framealpha=0.9, loc='best')
+legend.get_frame().set_facecolor('white')
+legend.get_frame().set_edgecolor('gray')
+
+plt.tight_layout()
+plt.show()
+print("Meilleur train score: {:.4f}".format(np.max(train_scores)))
+print("Meilleur test score: {:.4f}".format(np.max(test_scores)))
+print("Écart sur-apprentissage au meilleur C (test): {:.4f}".format(train_scores[ind_test] - test_scores[ind_test]))
+```
+
+C'est rassurant : la valeur optimale de C est la même pour l'ensemble d'apprentissage comme pour l'ensemble de test et est égale à $10^{-3}$. Un écart existe tout de même entre les scores, ce qui est attendu, évitant ainsi le sur-apprentissage. Le score sur l'ensemble "test" est proche de 95%, donc nous tournons autour d'une erreur de 5% dans la reconnaissance des visages. Les prédictions auront une marge d'erreur similaire. :
+
+```{python}
+#| echo: false
+print('Prédiction du nom des personnes apparaissant dans les données "test"')
+t0 = time()
+
+# predict labels for the X_test images with the best classifier (basé sur le score de test)
+parameters = {'kernel': ['linear'], 'C': [Cs[ind_test]]}
+svm_model = svm.SVC()
+clf = GridSearchCV(svm_model, parameters, n_jobs=-1)
+clf.fit(X_train, y_train)
+y_pred = clf.predict(X_test)
+
+print("Effectué en  %0.3fs" % (time() - t0))
+# The chance level is the accuracy that will be reached when constantly predicting the majority class.
+print("Niveau de chance : %s" % max(np.mean(y), 1. - np.mean(y)))
+print("Précision : %s" % clf.score(X_test, y_test))
+
+prediction_titles = [title(y_pred[i], y_test[i], names)
+                     for i in range(y_pred.shape[0])]
+
+plot_gallery(images_test, prediction_titles)
+plt.show()
+```
+
+La précision obtenue est bien de 95% avec une certitude de précision largement dépassée qui était de 88%. Il est fort probable que lorsque George W Bush est apparu, l'SVM n'a pas eu de mal à le reconnaître mais que lorsque Hugo Chavez est apparu, il a également pensé qu'il s'agissait de Bush ou alors que lorsque Bush n'était pas facile à reconnaître, il l'a classé comme étant Chavez. Voyons ce qu'observent les SVM pour faire de la reconnaissance et classification de visages :
+
+```{python}
+#| echo: false
+plt.figure(figsize=(8, 6))
+plt.imshow(np.reshape(clf.best_estimator_.coef_[0], (h, w)))
+plt.colorbar(label='Poids des coefficients')
+plt.title('Coefficients du SVM linéaire')
+plt.xlabel('Pixels')
+plt.ylabel('Pixels')
+plt.show()
+```
+
+Comme nous classons George W Bush (classe 1) contre Hugo Chavez (classe 2), les zones claires (jaune vif) sont celles où Bush a des caractéristiques distinctives, à savoir, semblerait-il, le nez, les paupières et les lèvres et les zones foncées (bleu nuit) sont celles où Chavez se démarque, donc les cheveux et la pilosité faciale ou la forme de la mâchoire. Tout autour du visage il semble y avoir beaucoup de bruits car des éléments de décor sont parfois très clair ou très foncé mais ces pixels n'aident pas à reconnaître la personne.
+
+Nous notons déjà du bruit, mais observons la différence dans les performances des SVM quand nous ajoutons du bruit en introduisant une variable de nuisance :
+
+```{python}
+#| echo: false
+# Q5
+random.seed(9204)
+
+def run_svm_cv(_X, _y):
+    _indices = np.random.permutation(_X.shape[0])
+    _train_idx, _test_idx = _indices[:_X.shape[0] // 2], _indices[_X.shape[0] // 2:]
+    _X_train, _X_test = _X[_train_idx, :], _X[_test_idx, :]
+    _y_train, _y_test = _y[_train_idx], _y[_test_idx]
+
+    _parameters = {'kernel': ['linear'], 'C': list(np.logspace(-3, 3, 5))}
+    _svr = svm.SVC()
+    _clf_linear = GridSearchCV(_svr, _parameters, n_jobs=-1)
+    _clf_linear.fit(_X_train, _y_train)
+
+    print('Score de généralisation pour le noyau linéaire : %s, %s \n' %
+          (_clf_linear.score(_X_train, _y_train), _clf_linear.score(_X_test, _y_test)))
+
+print("Score sans variable de nuisance")
+run_svm_cv(X, y)
+
+print("Score avec variable de nuisance")
+n_features = X.shape[1]
+# On rajoute des variables de nuisances
+sigma = 1
+noise = sigma * np.random.randn(n_samples, 300)
+#with gaussian coefficients of std sigma
+X_noisy = np.concatenate((X, noise), axis=1)
+X_noisy = X_noisy[np.random.permutation(X_noisy.shape[0])] 
+run_svm_cv(X_noisy, y)
+```
+
+Nous perdons 10% de précision en rajoutant du bruit. Nous ne pourrions plus tout à fait nous fier aux résultats de reconnaissance faciale apportée par les SVM. Nous devrions pouvoir améliorer le score sur les données bruitées en réduisant le nombre de dimension par ACP (Analyse des Composantes Principales).
+
+```{python}
+#| echo: false
+# Q6
+random.seed(9204)
+
+print("Score après réduction de dimension")
+
+# n_components = 20  # jouer avec ce parametre
+# n_components = 10 # similar results as n_components = 5 but takes much longer
+n_components = 5 
+X_noisy_scaled = scaler.fit_transform(X_noisy)
+pca = PCA(n_components=n_components, svd_solver='randomized').fit(X_noisy_scaled)
+X_noisy_pca = pca.transform(X_noisy_scaled)
+
+t0 = time()
+run_svm_cv(X_noisy_pca, y)
+print("Effectué en  %0.3fs" % (time() - t0))
+```
+
+L'algorithme est d'office moins certain de son ajustement sur les données d'apprentissage mais nous gagnons une précision de presque 5% en réduisant largement le nombre de dimensions. Nous avons choisi à tâtons le nombre de composantes nous arrangeant et avons remarqué qu'au-delà de 5 composantes nous n'améliorions plus la prédiction. 
+
+# Conclusion
+
+Nous avons pu voir que la performance des SVM, le choix du noyau et des hyperparamètres dépend énormément de la qualité de la base de données. Complexifier un modèle en choisissant un noyau polynomial plutôt qu'un noyau linéaire n'est pas nécessairement meilleur puisque cela va dépendre de la "disposition" des données. Un jeu de données bruité est forcément plus confus et la prédiction en est moins précise mais l'under-fitting (*sous-apprentissage*) peut être évité : nous avions ajouté 300 variables de nuisance qui ont pu être corrigées par réduction de dimensions. Nous avons cependant introduit nous-mêmes un biais dans cette étude en normalisant les données "train" et les données "test" en même temps, ce qui peut produire de l'over-fitting (*sur-apprentissage*) car le modèle a donc travaillé, à une certaine mesure, sur les données "test" servant à la prédiction.  
